@@ -35,13 +35,16 @@ from churn.models.interpret import shap_analysis, stress_test
 
 warnings.filterwarnings("ignore")
 
-# MLflow serializes with skops, which needs the custom types declared up front
+# MLflow serializes with skops, which refuses types it can't vouch for. These are all
+# objects this pipeline creates itself. Tree is flagged because a tampered file could hold
+# out-of-range node indices; ours are written and read by the same pipeline.
 SKOPS_TRUSTED_TYPES = [
     "numpy.dtype",
     "churn.features.build.add_derived_features",
     "sklearn.frozen._frozen.FrozenEstimator",
     "sklearn.calibration._CalibratedClassifier",
     "sklearn.calibration._SigmoidCalibration",
+    "sklearn.tree._tree.Tree",
 ]
 
 
