@@ -1,0 +1,40 @@
+# api       serves the champion baked into the image
+# mlflow    experiment and registry UI over the pipeline's SQLite store
+# pipeline  training / batch / monitoring jobs (profile "jobs", run on demand)
+#
+# MLflow stores absolute artifact paths, so mlflow and pipeline mount the
+# project at the same path as on the host (${PWD}).
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/pipeline.Dockerfile
+    entrypoint: ["mlflow"]
+    command: ["ui", "--host", "0.0.0.0", "--port", "5000", "--backend-store-uri", "sqlite:///${PWD}/mlruns/mlflow.db"]
+    working_dir: ${PWD}
+    volumes:
+      - .:${PWD}
+    ports:
+      - "5000:5000"
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/pipeline.Dockerfile
+    profiles: ["jobs"]
+    working_dir: ${PWD}
+    environment:
+      - CHURN_HOME=${PWD}
+    volumes:
+      - .:${PWD}
+    command: ["simulate"]
