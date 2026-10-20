@@ -1,0 +1,40 @@
+name: Scheduled retraining
+
+# Continuous training. Runs monthly (or on demand) and publishes the reports.
+# Runners are ephemeral, so this replays the full simulation; in production the
+# job would point MLFLOW_TRACKING_URI and the data paths at persistent storage
+# and run `churn run-month --date <today>` instead.
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "churn command to run"
+        type: choice
+        options: [simulate, init]
+        default: simulate
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[serving,pipeline]"
+      - run: churn "$COMMAND"
+        env:
+          COMMAND: ${{ inputs.command || 'simulate' }}
+      - run: |
+          [ -f reports/simulation.md ] && cat reports/simulation.md >> "$GITHUB_STEP_SUMMARY"
+          churn status >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retraining-${{ github.run_number }}
+          path: |
+            reports/
+            artifacts/champion/
