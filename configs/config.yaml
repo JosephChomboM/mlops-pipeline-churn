@@ -1,0 +1,73 @@
+data:
+  raw_url: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+  random_state: 42
+  holdout_fraction: 0.20      # frozen, only used to compare champion vs challenger
+  production_fraction: 0.30   # pool the monthly cohorts are drawn from
+  test_fraction: 0.20         # within the development split
+
+mlflow:
+  experiment: churn-prediction
+  registered_model: churn-classifier
+
+gates:
+  min_gini: 0.60              # AUC 0.80
+  min_recall: 0.60            # recall of the contact decision, not of p >= 0.5
+  max_train_test_gini_gap: 0.10
+  max_ece: 0.05
+
+calibration:
+  fraction: 0.20              # share of train held out to fit the Platt calibrator
+
+promotion:
+  gini_tolerance: 0.01        # challenger may lose at most this much Gini vs champion
+
+business:
+  retention_offer_cost: 60.0
+  offer_success_rate: 0.35
+  retained_months: 12
+
+monitoring:
+  label_maturity_days: 30
+  psi_warn: 0.10
+  psi_retrain: 0.25
+  psi_bins: 10
+
+segments:
+  columns: [contract, internet_service, tenure_band, payment_method]
+  tenure_bands: [-1, 6, 12, 24, 48, 100]
+  tenure_labels: ["0-6m", "7-12m", "13-24m", "25-48m", "49m+"]
+  min_rows: 30
+
+interpretability:
+  shap_sample: 500
+  stress_std: 1.0
+
+simulation:
+  cohort_size: 250
+  schedule:                   # date, population shift, corrupted delivery
+    - ["2026-01-01", 0.0, false]
+    - ["2026-02-01", 0.0, false]
+    - ["2026-03-01", 1.0, false]
+    - ["2026-04-01", 1.5, true]
+    - ["2026-05-01", 2.0, false]
+    - ["2026-06-01", 2.0, false]
+
+features:
+  numeric: [tenure, monthly_charges, total_charges]
+  categorical:
+    - gender
+    - senior_citizen
+    - partner
+    - dependents
+    - phone_service
+    - multiple_lines
+    - internet_service
+    - online_security
+    - online_backup
+    - device_protection
+    - tech_support
+    - streaming_tv
+    - streaming_movies
+    - contract
+    - paperless_billing
+    - payment_method

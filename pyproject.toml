@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "churn"
+version = "1.0.0"
+description = "Churn prediction with a closed MLOps loop: validation, calibration, champion/challenger, drift and delayed-label monitoring."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Joseph Chombo" }]
+# Pinned: the model bundle is serialized with these exact versions
+dependencies = [
+    "pandas==2.3.3",
+    "numpy==2.5.1",
+    "scikit-learn==1.9.0",
+    "joblib==1.5.3",
+    "pyyaml==6.0.3",
+    "certifi>=2024.0.0",
+]
+
+[project.optional-dependencies]
+serving = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.1",
+    "pydantic==2.13.4",
+]
+pipeline = [
+    "mlflow==3.15.1",
+    "pandera==0.34.1",
+    "scipy==1.18.0",
+    "shap==0.54.1",
+    "matplotlib==3.11.1",
+    "tabulate==0.10.0",
+]
+dev = [
+    "churn[serving,pipeline]",
+    "pytest==9.1.1",
+    "httpx==0.28.1",
+    "ruff==0.17.1",
+    "nbformat==5.11.1",
+    "nbconvert==7.17.2",
+    "ipykernel==7.4.0",
+]
+
+[project.scripts]
+churn = "churn.pipelines.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -p no:warnings"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["churn"]
