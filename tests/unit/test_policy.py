@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from churn import config
-from churn.decision.policy import choose_policy, decide, expected_value, net_value, risk_band
+from churn.decision.policy import choose_policy, customer_gains, decide, expected_value, net_value, risk_band
 
 
 def test_net_value_counts_only_contacted_customers():
@@ -11,6 +11,14 @@ def test_net_value_counts_only_contacted_customers():
     value = np.full(4, 1000.0)
     expected = (config.OFFER_SUCCESS_RATE * 1000 - config.RETENTION_OFFER_COST) - config.RETENTION_OFFER_COST
     assert net_value(y, contact, value) == pytest.approx(expected)
+
+
+def test_customer_gains_sum_to_net_value():
+    rng = np.random.default_rng(0)
+    y, contact, value = rng.integers(0, 2, 50), rng.uniform(size=50) > 0.5, rng.uniform(100, 1000, 50)
+    gains = customer_gains(y, contact, value)
+    assert (gains[~contact] == 0).all()
+    assert gains.sum() == pytest.approx(net_value(y, contact, value))
 
 
 def test_nobody_contacted_is_worth_zero():

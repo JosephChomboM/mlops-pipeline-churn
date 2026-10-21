@@ -32,14 +32,19 @@ def decide(proba, value, policy: dict) -> np.ndarray:
     return np.asarray(proba) >= policy["threshold"]
 
 
-def net_value(y_true, contact, value) -> float:
+def customer_gains(y_true, contact, value) -> np.ndarray:
+    """Realized gain per customer: 0 if not contacted."""
     y_true, contact, value = np.asarray(y_true), np.asarray(contact, dtype=bool), np.asarray(value)
     gain = np.where(
         y_true == 1,
         config.OFFER_SUCCESS_RATE * value - config.RETENTION_OFFER_COST,
         -config.RETENTION_OFFER_COST,
     )
-    return float(gain[contact].sum())
+    return np.where(contact, gain, 0.0)
+
+
+def net_value(y_true, contact, value) -> float:
+    return float(customer_gains(y_true, contact, value).sum())
 
 
 def choose_policy(y_true, proba, value) -> dict:
