@@ -52,9 +52,12 @@ MIN_GINI = _cfg["gates"]["min_gini"]
 MIN_RECALL = _cfg["gates"]["min_recall"]
 MAX_TRAIN_TEST_GINI_GAP = _cfg["gates"]["max_train_test_gini_gap"]
 MAX_ECE = _cfg["gates"]["max_ece"]
+MAX_SEGMENT_CALIBRATION_Z = _cfg["gates"]["max_segment_calibration_z"]
 
-CALIBRATION_FRACTION = _cfg["calibration"]["fraction"]
+CALIBRATION_FOLDS = _cfg["calibration"]["folds"]
 PROMOTION_GINI_TOLERANCE = _cfg["promotion"]["gini_tolerance"]
+PROMOTION_MIN_WIN_PROBABILITY = _cfg["promotion"]["min_win_probability"]
+PROMOTION_BOOTSTRAP_SAMPLES = _cfg["promotion"]["bootstrap_samples"]
 
 # Business
 RETENTION_OFFER_COST = _cfg["business"]["retention_offer_cost"]

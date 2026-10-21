@@ -55,6 +55,18 @@ def add_segments(X: pd.DataFrame) -> pd.DataFrame:
     return X
 
 
+def calibration_z(y_true, proba) -> float:
+    """How many standard errors the observed churn count is from the predicted one.
+
+    If the model is calibrated, the number of churners in a group is a sum of independent
+    Bernoulli(p_i), with variance sum p_i (1 - p_i). A gap of a few points in a small segment
+    is usually noise; this says when it isn't.
+    """
+    y_true, proba = np.asarray(y_true), np.asarray(proba)
+    se = np.sqrt(np.sum(proba * (1 - proba)))
+    return float((y_true.sum() - proba.sum()) / se) if se > 0 else 0.0
+
+
 def segment_report(X: pd.DataFrame, y_true, proba, contact) -> pd.DataFrame:
     """Same metrics per driver value. Small segments or segments with one class get no Gini."""
     df = add_segments(X).assign(y=np.asarray(y_true), p=np.asarray(proba), contact=np.asarray(contact))
@@ -69,6 +81,7 @@ def segment_report(X: pd.DataFrame, y_true, proba, contact) -> pd.DataFrame:
                     "n": len(part),
                     "churn_rate": part["y"].mean(),
                     "mean_predicted": part["p"].mean(),
+                    "calibration_z": calibration_z(part["y"], part["p"]),
                     "gini": 2 * roc_auc_score(part["y"], part["p"]) - 1 if enough else np.nan,
                     "recall": recall_score(part["y"], part["contact"], zero_division=0) if part["y"].any() else np.nan,
                     "contact_rate": part["contact"].mean(),
@@ -84,6 +97,12 @@ def run_validation_gates(metrics: dict) -> dict:
         ("min_recall", metrics["test_recall"] >= config.MIN_RECALL, metrics["test_recall"], config.MIN_RECALL),
         ("max_gini_gap", gap <= config.MAX_TRAIN_TEST_GINI_GAP, gap, config.MAX_TRAIN_TEST_GINI_GAP),
         ("max_ece", metrics["test_ece"] <= config.MAX_ECE, metrics["test_ece"], config.MAX_ECE),
+        (
+            "max_segment_calibration_z",
+            metrics["test_max_segment_calibration_z"] <= config.MAX_SEGMENT_CALIBRATION_Z,
+            metrics["test_max_segment_calibration_z"],
+            config.MAX_SEGMENT_CALIBRATION_Z,
+        ),
     ]
     checks = [
         {"name": name, "passed": bool(ok), "value": round(float(value), 4), "threshold": limit}

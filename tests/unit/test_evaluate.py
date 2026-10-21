@@ -5,6 +5,7 @@ from sklearn.metrics import roc_auc_score
 from churn import config
 from churn.models.evaluate import (
     calibration_table,
+    calibration_z,
     compute_metrics,
     expected_calibration_error,
     ks_statistic,
@@ -55,8 +56,29 @@ def test_segment_report_covers_every_driver(sample):
 
 
 def test_gates_reject_overfit_and_miscalibrated_models():
-    good = {"train_gini": 0.75, "test_gini": 0.72, "test_recall": 0.8, "test_ece": 0.02}
+    good = {
+        "train_gini": 0.75,
+        "test_gini": 0.72,
+        "test_recall": 0.8,
+        "test_ece": 0.02,
+        "test_max_segment_calibration_z": 1.5,
+    }
     assert run_validation_gates(good)["passed"]
-    for metrics, gate in (({**good, "train_gini": 0.95}, "max_gini_gap"), ({**good, "test_ece": 0.15}, "max_ece")):
+    cases = [
+        ({**good, "train_gini": 0.95}, "max_gini_gap"),
+        ({**good, "test_ece": 0.15}, "max_ece"),
+        ({**good, "test_max_segment_calibration_z": 4.2}, "max_segment_calibration_z"),
+    ]
+    for metrics, gate in cases:
         failed = [c["name"] for c in run_validation_gates(metrics)["checks"] if not c["passed"]]
         assert failed == [gate]
+
+
+def test_calibration_z_separates_noise_from_bias():
+    rng = np.random.default_rng(0)
+    proba = rng.uniform(0.1, 0.6, 300)
+    y = (rng.uniform(size=300) < proba).astype(int)
+    assert abs(calibration_z(y, proba)) < 3
+    # Same segment, but the model under-predicts by 10 points
+    y_biased = (rng.uniform(size=300) < proba + 0.10).astype(int)
+    assert calibration_z(y_biased, proba) > 3

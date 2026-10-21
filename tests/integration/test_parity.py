@@ -15,7 +15,7 @@ from churn.serving.batch import score_portfolio
 
 def test_serialized_artifact_scores_like_the_trained_model(tmp_path, telco):
     train = telco.sample(800, random_state=3)
-    _, model, _, _ = fit_calibrated(LogisticRegression(max_iter=1000), train[config.FEATURES], train[config.TARGET])
+    _, model = fit_calibrated(LogisticRegression(max_iter=1000), train[config.FEATURES], train[config.TARGET])
     save_bundle(tmp_path, model, {"rule": "expected_value", "threshold": None}, {"version": 1}, train)
     assert parity_check(tmp_path, model, telco.sample(200, random_state=4))["passed"]
 

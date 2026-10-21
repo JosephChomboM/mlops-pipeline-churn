@@ -15,9 +15,8 @@ from churn.decision.policy import customer_value, decide
 
 
 def base_pipeline(model):
-    """Unwrap CalibratedClassifierCV(FrozenEstimator(pipeline))."""
-    frozen = model.calibrated_classifiers_[0].estimator
-    return getattr(frozen, "estimator", frozen)
+    """The pipeline inside CalibratedClassifierCV(ensemble=False), refit on all of train."""
+    return model.calibrated_classifiers_[0].estimator
 
 
 def _original_feature(transformed_name: str) -> str:

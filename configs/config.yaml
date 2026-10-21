@@ -14,12 +14,15 @@ gates:
   min_recall: 0.60            # recall of the contact decision, not of p >= 0.5
   max_train_test_gini_gap: 0.10
   max_ece: 0.05
+  max_segment_calibration_z: 3.0  # ~5% family-wise over ~17 segments (Bonferroni)
 
 calibration:
-  fraction: 0.20              # share of train held out to fit the Platt calibrator
+  folds: 5                    # Platt fitted on out-of-fold scores; the base model sees all of train
 
 promotion:
   gini_tolerance: 0.01        # challenger may lose at most this much Gini vs champion
+  min_win_probability: 0.95   # share of paired bootstrap resamples the challenger must win
+  bootstrap_samples: 2000
 
 business:
   retention_offer_cost: 60.0

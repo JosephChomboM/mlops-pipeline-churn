@@ -18,9 +18,8 @@ LIMITATIONS = [
     "**Simplified customer value.** CLV is monthly charge x 12; no discounting and no churn risk after retention.",
     "**Fixed offer acceptance rate (35%).** In practice it depends on the segment and should come from a "
     "retention experiment with a control group.",
-    "**Small promotion margins.** Value differences between versions on the holdout are within sampling noise; "
-    "the promotion rule has no significance test.",
-    "**Global calibration.** Platt fixes the average level; individual segments (see the driver table) can stay biased.",
+    "**Global calibration.** Platt fixes the average level. Per-segment offsets were tested (notebook 03) and made "
+    "holdout calibration worse, so segments are tested for significant bias instead of corrected.",
     "**Fixed holdout.** It reflects the original population and should be refreshed (versioned) from recent "
     "matured labels after a lasting shift.",
 ]
@@ -64,7 +63,9 @@ def write_model_card() -> None:
         rule = f"contact if `p >= {policy['threshold']}` (global threshold)"
     weak = segments.dropna(subset=["gini"]).nsmallest(3, "gini")[["segment", "value", "n", "gini"]]
     gaps = segments.assign(calib_gap=(segments["mean_predicted"] - segments["churn_rate"]).abs())
-    miscalibrated = gaps.nlargest(3, "calib_gap")[["segment", "value", "n", "churn_rate", "mean_predicted"]]
+    miscalibrated = gaps.nlargest(3, "calib_gap")[
+        ["segment", "value", "n", "churn_rate", "mean_predicted", "calibration_z"]
+    ]
 
     lines = [
         f"# Model card: {config.REGISTERED_MODEL_NAME} v{meta['version']}",
@@ -76,7 +77,7 @@ def write_model_card() -> None:
         "| | |",
         "|---|---|",
         f"| Registry version | v{meta['version']}, alias `champion` |",
-        f"| Algorithm | {meta['model']} + Platt calibration (sigmoid) |",
+        f"| Algorithm | {meta['model']} + Platt calibration on {config.CALIBRATION_FOLDS}-fold out-of-fold scores |",
         f"| MLflow run | `{meta['run_id']}` |",
         f"| Trained because | {meta['trigger']} |",
         f"| Production cohorts used | {', '.join(meta['trained_on_cohorts']) or 'none (initial model)'} |",
@@ -146,6 +147,10 @@ def write_model_card() -> None:
         "",
         _fmt(miscalibrated),
         "",
+        "`calibration_z` is the gap between observed and predicted churners in standard errors. "
+        f"|z| above {config.MAX_SEGMENT_CALIBRATION_Z} (about 5% family-wise over these segments) would mean a real bias; "
+        f"the largest here is {segments['calibration_z'].abs().max():.2f}.",
+        "",
         "## Drivers (SHAP)",
         "",
         "![SHAP importance](figures/shap_importance.png)",
@@ -177,8 +182,9 @@ def write_model_card() -> None:
         f"| PSI per feature and on the score | every batch | >= {config.PSI_RETRAIN} | retraining signal |",
         f"| Realized Gini on matured cohorts (95% CI) | monthly | upper bound < {config.MIN_GINI} | retraining signal |",
         "| Predicted vs actual churn rate | monthly | - | review calibration |",
-        f"| Challenger promotion | per retrain | more value and Gini >= champion - {config.PROMOTION_GINI_TOLERANCE} "
-        "| move the `champion` alias |",
+        f"| Segment calibration (z-test) | per retrain | \\|z\\| > {config.MAX_SEGMENT_CALIBRATION_Z} | gate fails |",
+        f"| Challenger promotion | per retrain | wins >= {config.PROMOTION_MIN_WIN_PROBABILITY:.0%} of paired bootstrap "
+        f"resamples, Gini >= champion - {config.PROMOTION_GINI_TOLERANCE} | move the `champion` alias |",
         "",
     ]
     (config.REPORTS_DIR / "model_card.md").write_text("\n".join(lines))

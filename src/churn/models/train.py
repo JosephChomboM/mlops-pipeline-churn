@@ -12,9 +12,8 @@ import mlflow.sklearn
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.frozen import FrozenEstimator
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 
 from churn import config
@@ -41,9 +40,9 @@ warnings.filterwarnings("ignore")
 SKOPS_TRUSTED_TYPES = [
     "numpy.dtype",
     "churn.features.build.add_derived_features",
-    "sklearn.frozen._frozen.FrozenEstimator",
     "sklearn.calibration._CalibratedClassifier",
     "sklearn.calibration._SigmoidCalibration",
+    "sklearn.model_selection._split.StratifiedKFold",
     "sklearn.tree._tree.Tree",
 ]
 
@@ -65,14 +64,20 @@ def build_model(estimator) -> Pipeline:
     return Pipeline([("features", build_preprocessor()), ("clf", estimator)])
 
 
+def cv_splitter() -> StratifiedKFold:
+    return StratifiedKFold(config.CALIBRATION_FOLDS, shuffle=True, random_state=config.RANDOM_STATE)
+
+
 def fit_calibrated(estimator, X, y):
-    """Base model on 80% of train, Platt calibrator on the remaining 20%. No row is reused."""
-    X_fit, X_cal, y_fit, y_cal = train_test_split(
-        X, y, test_size=config.CALIBRATION_FRACTION, stratify=y, random_state=config.RANDOM_STATE
-    )
-    base = build_model(estimator).fit(X_fit, y_fit)
-    calibrated = CalibratedClassifierCV(FrozenEstimator(base), method="sigmoid").fit(X_cal, y_cal)
-    return base, calibrated, X_fit, y_fit
+    """Platt scaling fitted on out-of-fold scores, so no row is scored by a model that saw it.
+
+    With ensemble=False the final base model is refit on all of train. Holding out a fixed 20%
+    for the calibrator instead costs ~0.01 holdout Gini (notebook 03).
+    Returns the base pipeline and the calibrated model.
+    """
+    calibrated = CalibratedClassifierCV(build_model(estimator), method="sigmoid", cv=cv_splitter(), ensemble=False)
+    calibrated.fit(X, y)
+    return calibrated.calibrated_classifiers_[0].estimator, calibrated
 
 
 def setup_mlflow() -> None:
@@ -87,19 +92,23 @@ def _fit_candidate(name, estimator, train_df, test_df, run_tags) -> dict:
     value_test = customer_value(X_test)
 
     with mlflow.start_run(run_name=name, tags=run_tags) as run:
-        base, model, X_fit, y_fit = fit_calibrated(estimator, X_train, y_train)
+        base, model = fit_calibrated(estimator, X_train, y_train)
 
-        proba_fit = model.predict_proba(X_fit)[:, 1]
+        proba_train = model.predict_proba(X_train)[:, 1]
         proba_test = model.predict_proba(X_test)[:, 1]
         policy = choose_policy(y_test, proba_test, value_test)
-        contact_fit = decide(proba_fit, customer_value(X_fit), policy)
+        contact_train = decide(proba_train, customer_value(X_train), policy)
         contact_test = decide(proba_test, value_test, policy)
+        segments_test = segment_report(X_test, y_test, proba_test, contact_test)
 
-        cv_auc = cross_val_score(build_model(estimator), X_train, y_train, cv=5, scoring="roc_auc", n_jobs=-1)
+        cv_auc = cross_val_score(
+            build_model(estimator), X_train, y_train, cv=cv_splitter(), scoring="roc_auc", n_jobs=-1
+        )
         metrics = {
-            **compute_metrics(y_fit, proba_fit, contact_fit, prefix="train_"),
+            **compute_metrics(y_train, proba_train, contact_train, prefix="train_"),
             **compute_metrics(y_test, proba_test, contact_test, prefix="test_"),
             "test_ece_uncalibrated": expected_calibration_error(y_test, base.predict_proba(X_test)[:, 1]),
+            "test_max_segment_calibration_z": float(segments_test["calibration_z"].abs().max()),
             "cv_gini_mean": float(2 * cv_auc.mean() - 1),
             "cv_gini_std": float(2 * cv_auc.std()),
             "test_net_value": policy["net_value"],
@@ -116,7 +125,7 @@ def _fit_candidate(name, estimator, train_df, test_df, run_tags) -> dict:
                 "train_rows": len(train_df),
                 "train_data_hash": dataframe_hash(train_df),
                 "test_data_hash": dataframe_hash(test_df),
-                "calibration": "sigmoid",
+                "calibration": f"sigmoid, {config.CALIBRATION_FOLDS}-fold out-of-fold",
                 "decision_rule": policy["rule"],
                 **{f"clf__{k}": v for k, v in estimator.get_params().items()},
             }
@@ -125,9 +134,7 @@ def _fit_candidate(name, estimator, train_df, test_df, run_tags) -> dict:
         mlflow.log_dict(policy, "decision_policy.json")
         mlflow.log_dict(gates, "validation_report.json")
         mlflow.log_text(calibration_table(y_test, proba_test).round(4).to_csv(index=False), "calibration_test.csv")
-        mlflow.log_text(
-            segment_report(X_test, y_test, proba_test, contact_test).to_csv(index=False), "segments_test.csv"
-        )
+        mlflow.log_text(segments_test.to_csv(index=False), "segments_test.csv")
         mlflow.set_tag("validation_status", "PASS" if gates["passed"] else "FAIL")
         mlflow.sklearn.log_model(
             model,
