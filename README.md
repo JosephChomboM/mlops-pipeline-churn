@@ -35,9 +35,11 @@ artifacts.
 │   └── pipeline.Dockerfile training, batch, monitoring, MLflow UI
 ├── docker-compose.yml
 ├── notebooks/
-│   ├── 01_eda.ipynb                what drives churn, data quality, feature decisions
-│   ├── 02_modeling.ipynb           candidates, calibration, decision rule, test vs holdout
-│   └── 03_production_review.ipynb  drift, delayed-label performance, promotions
+│   ├── 01_eda.ipynb                          quality, WoE/IV, univariate Gini, redundancy, interactions, split PSI
+│   ├── 02_feature_engineering.ipynb          derived features, ablation, encoding, stability
+│   ├── 03_modeling.ipynb                     baselines, grid search, CV, calibration, ROC/KS, lift, learning curve
+│   ├── 04_decision_and_interpretability.ipynb  decision rules, cost sensitivity, SHAP, segments, error analysis
+│   └── 05_production_review.ipynb            drift heatmap, label maturity, realized Gini, promotion bootstrap, registry
 ├── src/churn/
 │   ├── data/               ingest (frozen hashed split), validation (Pandera), quality report
 │   ├── features/           feature engineering inside a sklearn Pipeline
@@ -71,6 +73,18 @@ artifacts.
 | **Serving** | Batch scoring is the primary path and FastAPI covers lookups. Trained model, serialized artifact, batch and API return bit-identical scores. | [`serving/`](src/churn/serving/) |
 | **Monitoring** | Feature and prediction drift. Realized Gini with a bootstrap CI and predicted vs. actual churn, computed only on cohorts whose 30-day label window has closed. | [`monitoring/`](src/churn/monitoring/) |
 | **Retraining** | A drift or degradation signal retrains only if new matured, validated labels exist, and the challenger goes back through gates and promotion. | [`pipelines/orchestrator.py`](src/churn/pipelines/orchestrator.py) |
+
+## Notebooks
+
+The notebooks import everything from `src/churn`, so they analyze the same code that runs in production. Each one ends with the decisions it led to.
+
+| Notebook | Key findings |
+|---|---|
+| [01 · EDA](notebooks/01_eda.ipynb) | Contract (IV 1.24) and tenure (0.82) dominate. Gender and phone service carry no signal (Gini < 0.02). Month-to-month on fiber churns at 55% vs 7% on a two-year contract. The frozen split is representative (max PSI 0.019). |
+| [02 · Features](notebooks/02_feature_engineering.ipynb) | A plan change in either direction nearly doubles churn (U-shape). Derived features add only 0.003 Gini to a linear model, so they're kept for interpretability, not for lift. |
+| [03 · Modeling](notebooks/03_modeling.ipynb) | A two-column business rule already reaches 0.62 Gini; the models reach 0.73. The three algorithms are statistically tied on ranking. Calibration cuts ECE from 0.13 to 0.03. The top 30% of the list holds 70% of churners. |
+| [04 · Decision](notebooks/04_decision_and_interpretability.ipynb) | The expected-value rule earns $62.4k vs $45.3k at p ≥ 0.5 and stays profitable under every cost assumption tested. Half of the "missed" churners are left alone on purpose: they're not worth the offer. |
+| [05 · Production](notebooks/05_production_review.ipynb) | Drift spreads to correlated features while demographics stay flat. **A paired bootstrap shows that none of the promotions was a real improvement** (challenger wins in 40-63% of resamples). |
 
 ## CI/CD
 
@@ -202,9 +216,12 @@ Invalid payloads get a 422 before reaching the model. Every prediction is append
 
 ## Known limitations
 
-- **Promotion margins are small.** v2 and v4 won by 0.4–0.7% of holdout value, which is within
-  sampling noise. Next step: a paired bootstrap on the holdout, promoting only if the challenger
-  wins in ≥ 95% of resamples.
+- **Promotion is decided on a point estimate.** v2 and v4 won by 0.4–0.7% of holdout value. The
+  paired bootstrap in notebook 05 shows the challengers win in only 40–63% of resamples, so these
+  promotions were noise. Next step: promote only if the challenger wins in ≥ 95% of resamples. Under
+  that rule v1 would still be the champion.
+- **Tuning.** Gradient boosting runs at depth 3; the grid search in notebook 03 prefers depth 2 (CV
+  Gini 0.694 vs 0.682, within one standard deviation).
 - **Segment-level calibration.** New customers remain under-predicted after global Platt scaling.
 - **Simulated time.** Cohorts are disjoint customers, the drift is a covariate shift rather than
   concept drift, and there is no real out-of-time sample.
